@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <!-- AutoCAD 2026 through Update 1.1 uses .NET 8.
+         AutoCAD 2026 through Update 1.2+ uses .NET 10; You can change the current .NET version by changing
+		 <TargetFramework> below;
+		 !!!CHANGE TARGET ONLY IF YOU BUILD AGAINST THAST UPDATED HOST AND ITS MATCHING SDK!!! -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>AcadChecklistPrototype</AssemblyName>
+    <RootNamespace>AcadChecklistPrototype</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Set ACAD_DIR to your AutoCAD 2025 installation directory -->
+    <Reference Include="AcMgd">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcMgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AcDbMgd">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcDbMgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="AcCoreMgd">
+      <HintPath>C:\Program Files\Autodesk\AutoCAD 2025\AcCoreMgd.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>
