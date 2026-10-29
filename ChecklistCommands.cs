@@ -83,8 +83,8 @@ public class ChecklistCommands
             "\nЗадача создана. Для переключения запустите CLTOGGLE и щёлкните по кружку.");
     }
 
-    // Пока CLTOGGLE активна, выбирайте кружки чек-листа.
-    // Нажмите Enter или Esc, чтобы завершить команду.
+    // While CLTOGGLE is active choose the circles of checklist
+    // Tap Enter or Esc to end command
     [CommandMethod("CLTOGGLE")]
     public void ToggleChecklistTask()
     {
@@ -98,19 +98,42 @@ public class ChecklistCommands
 
         while (true)
         {
-            var opts = new PromptEntityOptions("\nВыберите кружок задачи: ");
-            opts.SetRejectMessage("\nНужно выбрать кружок чек-листа.");
+            var opts = new PromptEntityOptions(
+                "\nВыберите кружок или заливку задачи: ");
+            opts.SetRejectMessage("\nНужно выбрать кружок или заливку чек-листа.");
             opts.AddAllowedClass(typeof(Circle), exactMatch: true);
+            opts.AddAllowedClass(typeof(Hatch), exactMatch: true);
 
             PromptEntityResult res = ed.GetEntity(opts);
             if (res.Status != PromptStatus.OK) break;
 
             using Transaction tr = db.TransactionManager.StartTransaction();
 
-            Entity? ent = tr.GetObject(res.ObjectId, OpenMode.ForWrite) as Entity;
-            if (ent is not Circle circle || !IsChecklistTask(circle))
+            Entity? selected = tr.GetObject(res.ObjectId, OpenMode.ForRead) as Entity;
+            Circle? circle = selected as Circle;
+
+            // Если выбрали заливку, находим её кружок по сохранённому в XData handle.
+            if (selected is Hatch hatch)
             {
-                ed.WriteMessage("\nЭтот кружок не принадлежит чек-листу.");
+                string? circleHandle = ReadLinkedCircleHandle(hatch);
+
+                if (!TryGetObjectId(db, circleHandle, out ObjectId circleId))
+                {
+                    ed.WriteMessage("\nНе удалось найти связанный кружок.");
+                    tr.Abort();
+                    continue;
+                }
+
+                circle = tr.GetObject(circleId, OpenMode.ForWrite) as Circle;
+            }
+            else if (circle != null)
+            {
+                circle = (Circle)tr.GetObject(res.ObjectId, OpenMode.ForWrite);
+            }
+
+            if (circle is null || !IsChecklistTask(circle))
+            {
+                ed.WriteMessage("\nЭтот объект не принадлежит чек-листу.");
                 tr.Abort();
                 continue;
             }
@@ -119,7 +142,6 @@ public class ChecklistCommands
 
             if (isChecked)
             {
-                // Повторное нажатие: удалить связанную заливку.
                 string? hatchHandle = ReadHatchHandle(circle);
                 if (!string.IsNullOrEmpty(hatchHandle))
                     EraseFill(circle, tr, hatchHandle);
@@ -129,7 +151,6 @@ public class ChecklistCommands
             }
             else
             {
-                // Первое нажатие: создать заливку и сохранить связь с кругом.
                 ObjectId hatchId = CreateFill(circle, tr);
 
                 WriteTaskData(circle, true, hatchId.Handle.ToString());
@@ -142,6 +163,7 @@ public class ChecklistCommands
                 ? "\nЗадача отмечена выполненной."
                 : "\nОтметка снята.");
         }
+
     }
 
     [CommandMethod("CLHELP")]
@@ -177,7 +199,7 @@ public class ChecklistCommands
             new ObjectIdCollection { circle.ObjectId });
         hatch.EvaluateHatch(true);
 
-        // XData заливки хранит handle круга.
+        // hatch xdata has circle Handle.
         using var hatchData = new ResultBuffer(
             new TypedValue((int)DxfCode.ExtendedDataRegAppName, AppName),
             new TypedValue((int)DxfCode.ExtendedDataAsciiString, "FILL"),
@@ -210,6 +232,55 @@ public class ChecklistCommands
         }
     }
 
+    private static string? ReadLinkedCircleHandle(Hatch hatch)
+    {
+        using ResultBuffer? data = hatch.GetXDataForApplication(AppName);
+        if (data is null) return null;
+
+        TypedValue[] values = data.AsArray();
+
+        if (values.Length >= 3 &&
+            values[1].Value?.ToString() == "FILL")
+        {
+            return values[2].Value?.ToString();
+        }
+
+        return null;
+    }
+
+    private static bool TryGetObjectId(
+        Database db,
+        string? handleText,
+        out ObjectId objectId)
+    {
+        objectId = ObjectId.Null;
+
+        if (string.IsNullOrWhiteSpace(handleText) ||
+            !long.TryParse(
+                handleText,
+                System.Globalization.NumberStyles.HexNumber,
+                null,
+                out long handleValue))
+        {
+            return false;
+        }
+
+        try
+        {
+            objectId = db.GetObjectId(
+                false,
+                new Handle(handleValue),
+                0);
+
+            return !objectId.IsNull;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+
     private static string? ReadHatchHandle(Entity circle)
     {
         using ResultBuffer? data = circle.GetXDataForApplication(AppName);
@@ -217,7 +288,7 @@ public class ChecklistCommands
 
         TypedValue[] values = data.AsArray();
 
-        // [RegApp, TASK, состояние, handle заливки]
+        // [RegApp, TASK, state, handle of hetch]
         if (values.Length >= 4 &&
             values[1].Value?.ToString() == Marker &&
             values[2].Value?.ToString() == "1")
