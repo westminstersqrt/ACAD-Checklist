@@ -98,51 +98,38 @@ public class ChecklistCommands
 
         while (true)
         {
-            PromptPointResult pointRes = ed.GetPoint("\nЩёлкните внутри кружка задачи: ");
+            var opts = new PromptEntityOptions(
+                "\nВыберите кружок или заливку задачи: ");
+            opts.SetRejectMessage("\nНужно выбрать кружок или заливку чек-листа.");
+            opts.AddAllowedClass(typeof(Circle), exactMatch: true);
+            opts.AddAllowedClass(typeof(Hatch), exactMatch: true);
 
-            if (pointRes.Status != PromptStatus.OK)
-                break;
-
-            Point3d clickPoint = pointRes.Value;
-
+            PromptEntityResult res = ed.GetEntity(opts);
+            if (res.Status != PromptStatus.OK) break;
 
             using Transaction tr = db.TransactionManager.StartTransaction();
 
-            BlockTableRecord space = (BlockTableRecord)tr.GetObject(
-                db.CurrentSpaceId, OpenMode.ForRead);
+            Entity? selected = tr.GetObject(res.ObjectId, OpenMode.ForRead) as Entity;
+            Circle? circle = selected as Circle;
 
-            Circle? circle = null;
-            double nearestCenterDistance = double.MaxValue;
-
-            foreach (ObjectId id in space)
+            // Если выбрали заливку, находим её кружок по сохранённому в XData handle.
+            if (selected is Hatch hatch)
             {
-                if (tr.GetObject(id, OpenMode.ForRead) is not Circle candidate ||
-                    !IsChecklistTask(candidate))
+                string? circleHandle = ReadLinkedCircleHandle(hatch);
+
+                if (!TryGetObjectId(db, circleHandle, out ObjectId circleId))
                 {
+                    ed.WriteMessage("\nНе удалось найти связанный кружок.");
+                    tr.Abort();
                     continue;
                 }
 
-                // Проверяем попадание в круг в плоскости XY.
-                double dx = clickPoint.X - candidate.Center.X;
-                double dy = clickPoint.Y - candidate.Center.Y;
-                double distance = Math.Sqrt(dx * dx + dy * dy);
-
-                if (distance <= candidate.Radius &&
-                    distance < nearestCenterDistance)
-                {
-                    circle = candidate;
-                    nearestCenterDistance = distance;
-                }
+                circle = tr.GetObject(circleId, OpenMode.ForWrite) as Circle;
             }
-
-            if (circle is null)
+            else if (circle != null)
             {
-                ed.WriteMessage("\nЩёлкните внутри кружка чек-листа.");
-                tr.Abort();
-                continue;
+                circle = (Circle)tr.GetObject(res.ObjectId, OpenMode.ForWrite);
             }
-
-            circle = (Circle)tr.GetObject(circle.ObjectId, OpenMode.ForWrite);
 
             if (circle is null || !IsChecklistTask(circle))
             {
